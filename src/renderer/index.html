@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>PokéSave Extractor</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>PokéSave Extractor</h1>
+    <span class="version" id="versionTag"></span>
+  </header>
+
+  <main>
+    <!-- Paso 1-3: selección + extracción -->
+    <section class="controls">
+      <div class="field row">
+        <label for="fileBtn">Archivo</label>
+        <input id="filePath" type="text" placeholder="Ninguno" readonly />
+        <button id="fileBtn" type="button">Examinar…</button>
+      </div>
+
+      <div class="field row">
+        <label for="gameSel">Juego</label>
+        <select id="gameSel">
+          <option value="auto">Detectar automáticamente</option>
+        </select>
+        <span id="detectNote" class="note"></span>
+      </div>
+
+      <div class="field actions">
+        <button id="extractBtn" class="primary" type="button" disabled>Extraer</button>
+        <button id="trackBtn" class="track" type="button" disabled>Track</button>
+        <span id="busy" class="busy hidden">Extrayendo…</span>
+        <span id="trackStatus" class="note hidden"></span>
+      </div>
+
+      <div id="errorBanner" class="error hidden"></div>
+    </section>
+
+    <!-- Track panel (Overlay para streaming) -->
+    <section id="trackPanel" class="controls hidden">
+      <div class="track-head">
+        <h2>Overlay en vivo</h2>
+        <span id="trackLiveBadge" class="badge live hidden">● LIVE</span>
+      </div>
+      <div class="field row">
+        <label for="overlayPath">Overlay</label>
+        <input id="overlayPath" type="text" readonly placeholder="—" />
+        <button id="openOverlayBtn" type="button">Abrir carpeta</button>
+        <button id="previewOverlayBtn" type="button">Preview</button>
+      </div>
+      <p class="note">
+        Agregá <code>overlay.html</code> como <strong>Browser Source</strong> en OBS
+        (1920×1080). El equipo se actualiza cada 5&nbsp;s. Fondo, webcam y layout
+        son editables en ese archivo.
+      </p>
+    </section>
+
+    <!-- Resultado -->
+    <section id="result" class="hidden">
+      <nav class="tabs" id="tabs">
+        <button data-tab="summary" class="active">Resumen</button>
+        <button data-tab="party">Equipo</button>
+        <button data-tab="boxes">Cajas</button>
+        <button data-tab="bag">Mochila</button>
+        <button data-tab="json">JSON</button>
+        <span class="tab-spacer"></span>
+        <button id="copyBtn" class="ghost" type="button">Copiar JSON</button>
+        <button id="saveBtn" class="ghost" type="button">Guardar JSON</button>
+      </nav>
+
+      <div class="panels">
+        <div id="tab-summary" class="panel active"></div>
+        <div id="tab-party"   class="panel hidden"></div>
+        <div id="tab-boxes"   class="panel hidden"></div>
+        <div id="tab-bag"     class="panel hidden"></div>
+        <div id="tab-json"    class="panel hidden"><textarea id="jsonView" readonly spellcheck="false"></textarea></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

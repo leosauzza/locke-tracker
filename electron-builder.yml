@@ -1,0 +1,15 @@
+appId: com.locketracker.pokesave
+productName: PokeSave Extractor
+directories:
+  output: dist
+files:
+  - src/**/*
+  - data/**/*
+  - package.json
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false

@@ -1,6 +1,6 @@
 {
   "name": "pokesave-extractor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Extractor de saves de Pokémon (3DS / Switch) a JSON estructurado.",
   "main": "src/main/index.js",
   "author": "locke-tracker",

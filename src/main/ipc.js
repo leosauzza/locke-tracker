@@ -10,6 +10,8 @@ const { detectGame, getAdapter, listGames } = require('../core');
 
 const TOOL_VERSION = require('../../package.json').version;
 const tracker = require('./tracker');
+const db = require('./db');
+const config = require('./config');
 
 function registerIpc(getWin) {
   // Lista de juegos soportados (para el dropdown del renderer).
@@ -63,24 +65,31 @@ function registerIpc(getWin) {
   // --- Track & Overlay (SPEC §14) -------------------------------------------
 
   // Inicia el loop de 5s. Devuelve {ok} o {error}.
-  ipcMain.handle('track:start', (_e, filePath, gameKey) => {
+  ipcMain.handle('track:start', (_e, filePath, gameKey, options) => {
     if (!filePath) return { error: 'No se seleccionó un archivo.' };
     try {
-      tracker.start(filePath, gameKey, TOOL_VERSION);
+      tracker.start(filePath, gameKey, TOOL_VERSION, options || {});
       return { ok: true, status: tracker.status() };
     } catch (err) {
       return { error: err && err.message ? err.message : String(err) };
     }
   });
 
-  // Detiene el loop.
-  ipcMain.handle('track:stop', () => {
-    tracker.stop();
+  // Detiene el loop (y cierra conexiones a la DB si las hubiera).
+  ipcMain.handle('track:stop', async () => {
+    await tracker.stop();
     return { ok: true };
   });
 
   // Estado actual del tracker + path del overlay.
   ipcMain.handle('track:status', () => tracker.status());
+
+  // Prueba la conexión a MongoDB (ping, no escribe).
+  ipcMain.handle('db:test', async (_e, mongoUri) => db.ping(mongoUri));
+
+  // Persistencia de la configuración del usuario (modo + datos servidor).
+  ipcMain.handle('config:get', () => config.load());
+  ipcMain.handle('config:set', (_e, cfg) => config.save(cfg));
 
   // Abre la carpeta del overlay en el explorador de archivos.
   ipcMain.handle('track:openFolder', async () => {

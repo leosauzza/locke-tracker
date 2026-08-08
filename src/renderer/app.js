@@ -18,24 +18,32 @@ let statusTimer = null;
 document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   await populateGames();
+  await loadConfig();
   // Si el tracker ya está corriendo (ej. recarga del renderer), sincronizamos.
   try {
     const s = await api.trackStatus();
     if (s && s.running) {
-      $('trackPanel').classList.remove('hidden');
       setTracking(true);
-    } else if (s && s.overlayDir) {
+    } else if (s && s.overlayDir && currentMode() === 'local') {
       // Mostramos el panel con el path del overlay aunque no esté corriendo,
       // por si ya hay un overlay generado de una sesión previa.
       $('trackPanel').classList.remove('hidden');
       $('overlayPath').value = `${s.overlayDir}\\overlay.html`;
     }
   } catch { /* ignore */ }
+  updateExtractEnabled();
 });
 
 function bindEvents() {
   $('fileBtn').addEventListener('click', onChooseFile);
-  $('gameSel').addEventListener('change', updateExtractEnabled);
+  $('gameSel').addEventListener('change', () => { updateExtractEnabled(); persistConfig(); });
+  $('modeSel').addEventListener('change', () => { applyMode(); persistConfig(); });
+  $('showUri').addEventListener('change', toggleShowUri);
+  $('testDbBtn').addEventListener('click', onTestDb);
+  ['playerInput', 'nuzlockeInput', 'mongoUriInput'].forEach((id) => {
+    $(id).addEventListener('input', updateExtractEnabled);
+    $(id).addEventListener('blur', persistConfig);
+  });
   $('extractBtn').addEventListener('click', onExtract);
   $('trackBtn').addEventListener('click', onTrackToggle);
   $('openOverlayBtn').addEventListener('click', () => api.trackOpenFolder());
@@ -63,9 +71,91 @@ async function populateGames() {
 function updateExtractEnabled() {
   const hasFile = $('filePath').value.trim() !== '';
   $('extractBtn').disabled = !hasFile;
-  // trackBtn se gestiona en setTracking(); acá solo lo deshabilitamos si no
-  // hay archivo y no estamos trackeando.
-  if (!tracking) $('trackBtn').disabled = !hasFile;
+  // trackBtn: si está trackeando queda habilitado (para detener); si no, requiere
+  // archivo + (en modo server) datos del servidor válidos.
+  $('trackBtn').disabled = tracking ? false : !(hasFile && serverConfigValid());
+}
+
+// ---------------------------------------------------------------------------
+// Config (modo de salida + datos del servidor) — plan-data-en-servidor.md
+// ---------------------------------------------------------------------------
+function currentMode() {
+  return $('modeSel').value; // 'local' | 'server'
+}
+
+function serverConfigValid() {
+  if (currentMode() !== 'server') return true;
+  const player = $('playerInput').value.trim();
+  const nuzlocke = $('nuzlockeInput').value.trim();
+  const uri = $('mongoUriInput').value.trim();
+  return !!player && !!nuzlocke && /^mongodb(\+srv)?:\/\//.test(uri);
+}
+
+async function loadConfig() {
+  let cfg = {};
+  try { cfg = await api.configGet(); } catch { /* ignore */ }
+  $('modeSel').value = cfg.mode === 'server' ? 'server' : 'local';
+  $('playerInput').value = cfg.player || '';
+  $('nuzlockeInput').value = cfg.nuzlocke || '';
+  $('mongoUriInput').value = cfg.mongoUri || '';
+  if (cfg.filePath) $('filePath').value = cfg.filePath;
+  if (cfg.gameKey) {
+    const opt = [...$('gameSel').options].find((o) => o.value === cfg.gameKey);
+    if (opt) $('gameSel').value = cfg.gameKey;
+  }
+  applyMode();
+}
+
+function applyMode() {
+  const server = currentMode() === 'server';
+  $('serverPanel').classList.toggle('hidden', !server);
+  if (server) $('trackPanel').classList.add('hidden'); // overlay local no aplica
+  updateExtractEnabled();
+}
+
+function toggleShowUri() {
+  $('mongoUriInput').type = $('showUri').checked ? 'text' : 'password';
+}
+
+async function persistConfig() {
+  try {
+    await api.configSet({
+      mode: currentMode(),
+      player: $('playerInput').value.trim(),
+      nuzlocke: $('nuzlockeInput').value.trim(),
+      mongoUri: $('mongoUriInput').value.trim(),
+      filePath: $('filePath').value.trim(),
+      gameKey: $('gameSel').value,
+    });
+  } catch { /* ignore */ }
+}
+
+async function onTestDb() {
+  const uri = $('mongoUriInput').value.trim();
+  const note = $('testDbNote');
+  if (!uri) {
+    note.textContent = 'Falta el connection string.';
+    note.className = 'note warn';
+    return;
+  }
+  $('testDbBtn').disabled = true;
+  note.textContent = 'Probando…';
+  note.className = 'note subtle';
+  try {
+    const r = await api.dbTest(uri);
+    if (r && r.ok) {
+      note.textContent = 'Conexión OK';
+      note.className = 'note';
+    } else {
+      note.textContent = r && r.error ? `Error: ${r.error}` : 'No se pudo conectar.';
+      note.className = 'note warn';
+    }
+  } catch (err) {
+    note.textContent = err && err.message ? err.message : String(err);
+    note.className = 'note warn';
+  } finally {
+    $('testDbBtn').disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +181,7 @@ async function onChooseFile() {
   } catch (err) {
     $('detectNote').textContent = '';
   }
+  persistConfig();
   updateExtractEnabled();
 }
 
@@ -139,13 +230,29 @@ async function onTrackToggle() {
   if (!filePath) return;
   const gameKey = $('gameSel').value;
 
+  if (currentMode() === 'server' && !serverConfigValid()) {
+    showError('Faltan datos del servidor: jugador, nuzlocke y Mongo URI.');
+    return;
+  }
+
   hideError();
-  const r = await api.trackStart(filePath, gameKey);
+  await persistConfig();
+  const r = await api.trackStart(filePath, gameKey, buildTrackOptions());
   if (!r || r.error) {
     showError(r ? r.error : 'No se pudo iniciar el track.');
     return;
   }
   setTracking(true);
+}
+
+function buildTrackOptions() {
+  if (currentMode() !== 'server') return { mode: 'local' };
+  return {
+    mode: 'server',
+    player: $('playerInput').value.trim(),
+    nuzlocke: $('nuzlockeInput').value.trim(),
+    mongoUri: $('mongoUriInput').value.trim(),
+  };
 }
 
 function setTracking(on) {
@@ -155,18 +262,18 @@ function setTracking(on) {
     btn.textContent = 'Stop';
     btn.classList.add('stop');
     $('trackLiveBadge').classList.remove('hidden');
-    $('trackPanel').classList.remove('hidden');
-    $('overlayPath').value = '';
+    if (currentMode() === 'local') {
+      $('trackPanel').classList.remove('hidden');
+      $('overlayPath').value = '';
+    }
     pollStatus();
   } else {
     btn.textContent = 'Track';
     btn.classList.remove('stop');
     $('trackLiveBadge').classList.add('hidden');
     if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+    if (currentMode() === 'server') $('trackPanel').classList.add('hidden');
   }
-  // Siempre habilitado para poder detener; si no está corriendo, requiere file.
-  btn.disabled = !on && !$('filePath').value.trim();
-  // extractBtn permanece habilitado mientras no esté corriendo el extract
   updateExtractEnabled();
 }
 
@@ -176,12 +283,14 @@ async function pollStatus() {
     if (!tracking) return;
     const s = await api.trackStatus();
     if (!s) return;
-    if (s.overlayDir) {
-      $('overlayPath').value = `${s.overlayDir}\\overlay.html`;
-    }
     const parts = [];
     if (s.running) {
-      parts.push('Trackeando');
+      if (s.mode === 'server') {
+        parts.push(`Servidor · ${s.player}/${s.nuzlocke}`);
+      } else {
+        if (s.overlayDir) $('overlayPath').value = `${s.overlayDir}\\overlay.html`;
+        parts.push('Trackeando');
+      }
       if (s.lastUpdatedAt) {
         const ago = relTime(s.lastUpdatedAt);
         parts.push(`actualizado ${ago}`);

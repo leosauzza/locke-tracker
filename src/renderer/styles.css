@@ -61,7 +61,8 @@ main {
   gap: 10px;
 }
 .field label { width: 70px; color: var(--muted); }
-.field input[type="text"] {
+.field input[type="text"],
+.field input[type="password"] {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -81,6 +82,19 @@ main {
 }
 .note { color: var(--ok); font-size: 12px; }
 .note.warn { color: var(--warn); }
+.note.subtle { color: var(--muted); font-weight: 400; }
+
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  width: auto;
+  cursor: pointer;
+  user-select: none;
+}
+.check-inline input { cursor: pointer; }
 
 .actions { display: flex; align-items: center; gap: 12px; }
 

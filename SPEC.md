@@ -681,6 +681,65 @@ Todo bajo `app.getPath('userData')/overlay/`:
 - `data.js` (regenerado cada tick, no editar)
 - `overlay.template.html`, `overlay.version` (informativos)
 
+### 9.2 Modo servidor (MongoDB)
+> Doc de referencia: `plan-data-en-servidor.md`. El frontend consumidor vive en
+> el repo aparte `locke-data-viewer`.
+
+El tracker soporta dos **modos de salida**, **mutuamente excluyentes**, elegidos
+en la UI (selector `Modo`):
+
+- `local` (default): genera el `overlay.html` local (§9.1). Sin cambios.
+- `server`: en cada tick hace **upsert** de la run en MongoDB. El overlay local
+  queda deshabilitado en este modo.
+
+En modo `server` el usuario completa:
+- **Nombre del jugador** (`player`)
+- **Nuzlocke name** (`nuzlocke`) — identifica la run (disambigua cuando un mismo
+  jugador lleva varias, ej. `con-amigos` vs `creadores-youtube`).
+- **Connection string** de MongoDB — input `type="password"` con **checkbox
+  "Mostrar"** que toggglea a `text`.
+- Botón **Probar conexión** → `db.ping` (conecta + `ping:1`, no escribe).
+- El track arranca con el botón **Track** (como siempre).
+
+#### Identidad y schema del documento
+La run se identifica por **`player + nuzlocke`** (`gameLabel` es informativo, no
+parte de la clave). DB `locke-tracker`, colección `players`; `_id` =
+`` `${player}::${nuzlocke}` ``. El upsert filtra por `_id` y `$set` el resto.
+
+```jsonc
+{
+  "_id": "leo::con-amigos",
+  "player": "leo",
+  "nuzlocke": "con-amigos",
+  "gameLabel": "Brilliant Diamond / Shining Pearl",  // informativo
+  "platform": "Switch",            // layout del overlay del frontend
+  "party": [
+    { "species": 394, "speciesName": "Prinplup", "nickname": "Pingo", "level": 31, "shiny": false }
+  ],
+  "deadCount": 5,                  // nuzlocke.deadBox?.count ?? 0
+  "updatedAt": "2026-08-06T12:00:00.000Z"
+}
+```
+
+#### Archivos nuevos / cambiados
+- `src/core/slim.js` — `buildSlim(dump, player, nuzlocke)`. Puro Node, testeable.
+- `src/main/db.js` — `connect`/`upsertRun`/`ping`/`close`. `MongoClient` cacheado
+  por URI.
+- `src/main/config.js` — persiste `mode`, `player`, `nuzlocke`, `mongoUri` y
+  último `filePath`/`gameKey` en `userData/config.json`.
+- `src/main/tracker.js` — `start(filePath, gameKey, toolVersion, options)`; `tick`
+  rama por `options.mode` (`local` → `writeOverlay`, `server` →
+  `buildSlim` + `db.upsertRun`). Errores de escritura no matan el loop.
+  `stop()` cierra el `MongoClient`.
+- IPC nuevo: `db:test` (ping), `config:get`, `config:set`. `track:start` ahora
+  recibe `options`. `track:stop` es async (cierra la DB).
+
+#### Seguridad
+El connection string queda **embebido en el `.exe` portable**. Recomendado:
+crear **dos users** en MongoDB Atlas — *read-write* para esta app y **read-only**
+para el frontend (`locke-data-viewer`). Network access `0.0.0.0/0` porque el
+frontend corre serverless en Vercel.
+
 ---
 
 ## 10. Mejoras opcionales (backlog, no bloqueantes)

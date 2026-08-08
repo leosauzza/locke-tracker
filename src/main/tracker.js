@@ -1,11 +1,13 @@
 'use strict';
 
-// Bucle de "track" (SPEC §14 — Track & Overlay).
+// Bucle de "track" (SPEC §14 — Track & Overlay; plan-data-en-servidor.md).
 //
-// Cada TICK_MS (5s) relee el save seleccionado, extrae el dump canónico y
-// pisa `overlay/data.js` (que lee el overlay de OBS). Si la lectura falla
-// (ej. el emulador está reescribiendo el save a mitad de camino), se saltea
-// el tick y se conserva el último dato bueno — el tracker sigue corriendo.
+// Cada TICK_MS (5s) relee el save seleccionado, extrae el dump canónico y:
+//   - modo `local`  → pisa `overlay/data.js` (overlay para OBS local).
+//   - modo `server` → upsert del dump "slim" en MongoDB para esa run.
+// Si la lectura/escritura falla (ej. el emulador está reescribiendo el save a
+// mitad de camino, o la DB no responde), se saltea el tick y se conserva el
+// último dato bueno — el tracker sigue corriendo.
 //
 // La función extractNow es compartida con el handler IPC `extract` para que
 // la extracción manual y la del track usen exactamente la misma lógica.
@@ -18,6 +20,8 @@ const { detectGame, getAdapter } = require('../core');
 const { loadNames } = require('../core/names');
 const { summarize: nuzlockeSummary } = require('../core/nuzlocke');
 const { writeOverlay } = require('./overlay');
+const { buildSlim } = require('../core/slim');
+const db = require('./db');
 
 const TICK_MS = 5000;
 
@@ -69,28 +73,57 @@ function extractNow(filePath, gameKey, toolVersion) {
 // Estado del tracker.
 let timer = null;
 let current = null;
+let ticking = false; // evita ticks superpuestos (escritura DB lenta)
 
-function tick() {
-  if (!current) return;
+// Normaliza + valida las opciones de salida. Lanza con mensaje claro si algo
+// falta (lo atrapa el handler IPC `track:start`).
+function normalizeOptions(options) {
+  const mode = options && options.mode === 'server' ? 'server' : 'local';
+  if (mode !== 'server') {
+    return { mode };
+  }
+  const player = (options.player || '').trim();
+  const nuzlocke = (options.nuzlocke || '').trim();
+  const mongoUri = (options.mongoUri || '').trim();
+  if (!player) throw new Error('Falta el nombre del jugador.');
+  if (!nuzlocke) throw new Error('Falta el nombre del nuzlocke.');
+  if (!/^mongodb(\+srv)?:\/\//.test(mongoUri)) {
+    throw new Error('Connection string inválido (debe empezar con mongodb:// o mongodb+srv://).');
+  }
+  return { mode, player, nuzlocke, mongoUri };
+}
+
+async function tick() {
+  if (!current || ticking) return;
+  ticking = true;
   try {
     const dump = extractNow(current.filePath, current.gameKey, current.toolVersion);
-    writeOverlay(getOverlayDir(), dump);
+    if (current.options.mode === 'server') {
+      const slim = buildSlim(dump, current.options.player, current.options.nuzlocke);
+      await db.upsertRun(current.options.mongoUri, slim);
+    } else {
+      writeOverlay(getOverlayDir(), dump);
+    }
     current.lastDump = dump;
     current.lastError = null;
     current.lastUpdatedAt = dump.meta.extractedAt;
   } catch (err) {
     // Reintentamos en el próximo tick; dejamos el último dato bueno.
     current.lastError = err && err.message ? err.message : String(err);
+  } finally {
+    ticking = false;
   }
 }
 
-function start(filePath, gameKey, toolVersion) {
+function start(filePath, gameKey, toolVersion, options) {
   if (!filePath) throw new Error('Falta filePath');
-  stop();
+  stopSync(); // detiene loop anterior (la DB se cierra abajo de forma async)
+  const norm = normalizeOptions(options);
   current = {
     filePath,
     gameKey,
     toolVersion,
+    options: norm,
     startedAt: new Date().toISOString(),
     lastUpdatedAt: null,
     lastError: null,
@@ -99,14 +132,21 @@ function start(filePath, gameKey, toolVersion) {
   // Primera extracción inmediata (si falla, igual arranca el loop).
   tick();
   timer = setInterval(tick, TICK_MS);
+  // Las conexiones DB se cachean por URI (db.js): re-trackear con la misma URI
+  // las reutiliza, y `stop()` las cierra. Nada que limpiar acá.
 }
 
-function stop() {
+function stopSync() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+}
+
+async function stop() {
+  stopSync();
   current = null;
+  await db.close();
 }
 
 function isRunning() {
@@ -115,10 +155,13 @@ function isRunning() {
 
 function status() {
   if (!current) {
-    return { running: false, overlayDir: getOverlayDir() };
+    return { running: false, mode: null, overlayDir: getOverlayDir() };
   }
   return {
     running: true,
+    mode: current.options.mode,
+    player: current.options.player,
+    nuzlocke: current.options.nuzlocke,
     filePath: current.filePath,
     gameKey: current.gameKey,
     startedAt: current.startedAt,

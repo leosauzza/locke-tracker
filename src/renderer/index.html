@@ -29,6 +29,15 @@
         <span id="detectNote" class="note"></span>
       </div>
 
+      <div class="field row">
+        <label for="modeSel">Modo</label>
+        <select id="modeSel">
+          <option value="local">Overlay local</option>
+          <option value="server">Servidor (MongoDB)</option>
+        </select>
+        <span class="note subtle">¿dónde publicar los datos?</span>
+      </div>
+
       <div class="field actions">
         <button id="extractBtn" class="primary" type="button" disabled>Extraer</button>
         <button id="trackBtn" class="track" type="button" disabled>Track</button>
@@ -37,6 +46,32 @@
       </div>
 
       <div id="errorBanner" class="error hidden"></div>
+    </section>
+
+    <!-- Datos del servidor (modo MongoDB) -->
+    <section id="serverPanel" class="controls hidden">
+      <div class="track-head">
+        <h2>Datos del servidor</h2>
+      </div>
+      <div class="field row">
+        <label for="playerInput">Jugador</label>
+        <input id="playerInput" type="text" placeholder="ej: leo" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field row">
+        <label for="nuzlockeInput">Nuzlocke</label>
+        <input id="nuzlockeInput" type="text" placeholder="ej: con-amigos" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field row">
+        <label for="mongoUriInput">Mongo URI</label>
+        <input id="mongoUriInput" type="password" placeholder="mongodb+srv://..." autocomplete="off" spellcheck="false" />
+        <label class="check-inline"><input id="showUri" type="checkbox" /> Mostrar</label>
+        <button id="testDbBtn" type="button">Probar conexión</button>
+        <span id="testDbNote" class="note"></span>
+      </div>
+      <p class="note subtle">
+        En modo servidor, los datos se publican en MongoDB (run = jugador + nuzlocke)
+        y se consumen desde el frontend. El overlay local queda deshabilitado.
+      </p>
     </section>
 
     <!-- Track panel (Overlay para streaming) -->
